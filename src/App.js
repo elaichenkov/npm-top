@@ -1,6 +1,6 @@
 // Import required libraries
 import React, { useState } from 'react';
-import { fetchDownloadStatistics, searchNpmPackages, formatDownloads } from './Utils.js';
+import { searchNpmPackages, formatDownloads } from './Utils.js';
 import './App.css';
 
 const App = () => {
@@ -16,17 +16,9 @@ const App = () => {
     setLoading(true);
     setError('');
     try {
-      const { totalPackages, packages } = await searchNpmPackages(keywords, size);
+      const { totalPackages, packages } = await searchNpmPackages(keywords, size, period);
 
-      // Enrich packages with download statistics
-      const enrichedPackages = await Promise.all(
-        packages.map(async (pkg) => {
-          const downloads = await fetchDownloadStatistics(pkg.name, period);
-          return { ...pkg, downloads };
-        }),
-      );
-
-      setPackages(enrichedPackages);
+      setPackages(packages);
       setTotalPackages(totalPackages);
     } catch (err) {
       setError('Error fetching packages');

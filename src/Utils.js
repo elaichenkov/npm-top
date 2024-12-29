@@ -4,7 +4,7 @@ const fetchDownloadStatistics = async (packageName, period) => {
       // Fetch package metadata to get the first published date
       const response = await fetch(`https://registry.npmjs.org/${packageName}`);
       const metadata = await response.json();
-      const createdDate = new Date(metadata.data.time.created);
+      const createdDate = new Date(metadata.time.created);
       const currentDate = new Date();
 
       if (createdDate > currentDate) {
@@ -29,11 +29,12 @@ const fetchDownloadStatistics = async (packageName, period) => {
         }
 
         const range = `${yearStart}:${yearEnd}`;
+
         try {
           const response = await fetch(`https://api.npmjs.org/downloads/range/${range}/${packageName}`);
           const data = await response.json();
 
-          totalDownloads += data.downloads.reduce((sum, day) => sum + day.downloads, 0);
+          if (data.downloads) totalDownloads += data.downloads.reduce((sum, day) => sum + day.downloads, 0);
         } catch (error) {
           console.error(`Error fetching downloads for range ${range} of ${packageName}:`, error.message);
         }
@@ -43,6 +44,8 @@ const fetchDownloadStatistics = async (packageName, period) => {
 
       return totalDownloads;
     }
+
+    if (period === undefined) return;
 
     const response = await fetch(`https://api.npmjs.org/downloads/point/${period}/${packageName}`);
     const data = await response.json();
@@ -55,25 +58,44 @@ const fetchDownloadStatistics = async (packageName, period) => {
 };
 
 // Helper function to search for packages by keywords
-const searchNpmPackages = async (keywords, size) => {
+const searchNpmPackages = async (keywords, size, period) => {
   try {
     const response = await fetch(`https://registry.npmjs.org/-/v1/search?text=keywords:${keywords}&size=${size}`);
     const data = await response.json();
 
-    console.log('Data:', data);
+    const packages = await Promise.all(
+      data.objects.map(async (obj) => {
+        let downloads = 0;
+
+        if (period === 'last-week' && obj.downloads?.weekly) {
+          downloads = obj.downloads.weekly;
+        } else if (period === 'last-month' && obj.downloads?.monthly) {
+          downloads = obj.downloads.monthly;
+        } else {
+          downloads = await fetchDownloadStatistics(obj.package.name, period);
+        }
+
+        return {
+          name: obj.package.name,
+          description: obj.package.description,
+          version: obj.package.version,
+          keywords: obj.package.keywords ?? [],
+          license: obj.package.license,
+          updated: new Date(obj.package.date).toLocaleDateString(),
+          homepage: obj.package.links.homepage,
+          repository: obj.package.links.repository,
+          maintainer: `${obj.package.maintainers[0].username} <${obj.package.maintainers[0].email}>`,
+          downloads,
+        };
+      }),
+    );
+
+    // Sort packages by downloads in descending order
+    packages.sort((a, b) => b.downloads - a.downloads);
+
     return {
       totalPackages: data.total,
-      packages: data.objects.map((obj) => ({
-        name: obj.package.name,
-        description: obj.package.description,
-        version: obj.package.version,
-        keywords: obj.package.keywords ?? [],
-        license: obj.package.license,
-        updated: new Date(obj.package.date).toLocaleDateString(),
-        homepage: obj.package.links.homepage,
-        repository: obj.package.links.repository,
-        maintainer: `${obj.package.maintainers[0].username} <${obj.package.maintainers[0].email}>`,
-      })),
+      packages,
     };
   } catch (error) {
     console.error(`Error searching packages with keywords '${keywords}':`, error.message);
